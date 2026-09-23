@@ -4,6 +4,9 @@
 const isElectron = typeof window !== 'undefined' && Boolean((window as any).process?.type);
 
 const electronAPI = {
+  // 标记为 Web 兼容层：isElectronEnv() 据此排除，避免浏览器被误判为桌面端而直连 127.0.0.1:8000
+  isWebShim: true,
+
   // 平台信息
   getPlatform: () => isElectron ? (window as any).electronAPI?.getPlatform?.() : 'web',
   getSystemVersion: () => isElectron ? (window as any).electronAPI?.getSystemVersion?.() : navigator.userAgent,

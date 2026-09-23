@@ -69,7 +69,10 @@ function persistServerUrl(url: string | null): void {
  * 检测是否为 Electron 桌面环境
  */
 export function isElectronEnv(): boolean {
-  return typeof window !== 'undefined' && typeof (window as any).electronAPI === 'object';
+  if (typeof window === 'undefined') return false;
+  const api = (window as any).electronAPI;
+  // Web 端 utils/electronCompat.ts 会注入同名兼容层（isWebShim），不算桌面端
+  return typeof api === 'object' && api !== null && !api.isWebShim;
 }
 
 /**

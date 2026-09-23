@@ -43,7 +43,9 @@ class StockListService {
   private async _loadData(): Promise<void> {
     try {
       console.log('[StockList] 加载股票列表...');
-      const response = await fetch('/data/stocks.min.json');
+      // 按 Vite base 解析：生产为 "./"，Web 部署在子路径（如 /QuantMind/）与 Electron file:// 下均可命中
+      const base = (import.meta as any).env?.BASE_URL || './';
+      const response = await fetch(`${base}data/stocks.min.json`);
 
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);

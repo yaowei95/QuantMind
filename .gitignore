@@ -122,6 +122,8 @@ run/*.pid
 .env.local
 .env.*.local
 !.env.example
+# Web 前端部署的本机配置（服务器地址因人而异）
+deploy/web.local.env
 # 后台管理页面写入的运行时密钥
 config/runtime.env
 *.pem

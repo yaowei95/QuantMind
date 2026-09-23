@@ -98,6 +98,83 @@ sudo bash deploy/update.sh --no-build
 
 更新脚本只同步代码和核心容器，不会默认删除 PostgreSQL、Redis、`data/`、`models/` 或 `db/qlib_data/`，并会自动导入 `data/upgrade_*.sql` 数据库升级补丁（补丁需保持幂等，可重复执行）。
 
+## Web 前端（原生 Nginx）
+
+浏览器版前端不进 Docker。前端在本地构建，用 rsync 上传到 Nginx 主机，由宿主机上的原生 Nginx 托管。Nginx 同时把 `/api/`、`/ws/` 反代到后端。Nginx 主机和后端可以是同一台，也可以是两台不同的机器。
+
+```text
+浏览器 → Nginx 主机:<端口><WEB_PATH>   静态文件（本地构建后 rsync 上传）
+       → Nginx 主机:<端口>/api/        → 后端:8000
+       → Nginx 主机:<端口>/ws/         → 后端:8003（剥离 /ws 前缀）
+```
+
+### 首次安装（在 Nginx 主机上执行，只需一次）
+
+1. 按实际情况替换占位符，生成配置片段：
+
+   | 占位符 | 含义 | 示例 |
+   | --- | --- | --- |
+   | `@BACKEND_HOST@` | 后端 IP（必须填 IP，不能填域名） | `10.0.0.8` |
+   | `@HTML_ROOT@` | Nginx 静态根目录 | `/usr/share/nginx/html` |
+   | `@WEB_PATH@` | 访问子路径，前后都带 `/`；独占站点填 `/` | `/QuantMind/` |
+
+   ```bash
+   sed -e 's#@BACKEND_HOST@#<后端 IP>#' -e 's#@HTML_ROOT@#/usr/share/nginx/html#' \
+       -e 's#@WEB_PATH@#/QuantMind/#' deploy/nginx/quantmind.locations.conf \
+       | sudo tee /etc/nginx/quantmind.locations.conf >/dev/null
+   ```
+
+2. 挂到某个 server 块里：先备份 `nginx.conf`，然后在目标 `server { }` 内加一行：
+
+   ```nginx
+   include /etc/nginx/quantmind.locations.conf;
+   ```
+
+   如果没有现成的 server 块，就单独起一个：`server { listen 80; server_name _; include /etc/nginx/quantmind.locations.conf; }`。
+
+3. `sudo nginx -t && sudo systemctl reload nginx`
+
+注意：前端的 API 和 WebSocket 固定请求**根路径**下的 `/api/`、`/ws/`，所以挂载的那个 server 块里不能有别的服务占用 `/api/` 前缀。更长的前缀（如 `/api/xxx/`）不受影响，因为 Nginx 按最长前缀匹配。
+
+### 日常更新前端（在本地执行）
+
+第一次使用前，先复制一份配置，按实际地址填写（`deploy/web.local.env` 已加入 gitignore，不会提交）：
+
+```bash
+cp deploy/web.env.example deploy/web.local.env
+```
+
+以后每次更新执行：
+
+```bash
+npm install                             # 仅首次或依赖变更时
+bash scripts/deploy_frontend.sh         # 构建 → 上传 → 校验
+bash scripts/deploy_frontend.sh --skip-build   # 已构建过，只上传
+```
+
+脚本先上传新的 chunk，再切换 `index.html` 并清理旧文件，避免用户白屏。最后在 Nginx 主机上用 curl 校验 main chunk 返回 200。静态文件更新**不需要** reload Nginx；只改前端时也**不需要**执行 `deploy/update.sh`。
+
+### 后端换机器
+
+在 Nginx 主机上修改 `/etc/nginx/quantmind.locations.conf` 中的一行：
+
+```nginx
+set $qm_backend "<新后端 IP>";
+```
+
+然后执行 `sudo nginx -t && sudo systemctl reload nginx`。前端不需要重新发布。
+
+### 排障
+
+| 现象 | 原因与处理 |
+| --- | --- |
+| 访问页面返回 403 | 目录里没有 `index.html`（上传不完整，或多了一层嵌套目录），或者 Nginx 用户没有读权限（项目放在 `/root` 下时常见） |
+| 页面能打开但登录失败，请求发到了 `127.0.0.1:8000` | 前端误判成了桌面端，检查 `isElectronEnv()` 与 `utils/electronCompat.ts` 里的 `isWebShim` 标记 |
+| `/api/` 返回 502 | Nginx 主机连不上后端，在 Nginx 主机上执行 `curl http://<后端 IP>:8000/health` 排查；CentOS 还需 `setsebool -P httpd_can_network_connect 1` |
+| 某些资源 404 | 代码里写死了 `/xxx` 这样的根路径，改成相对路径或按 `import.meta.env.BASE_URL` 拼接 |
+
+安全要求：Nginx 的静态根目录只能放构建产物，**禁止**放项目源码目录，否则 `.env` 可以被直接下载。
+
 ## 验证与排障
 
 ```bash
@@ -109,7 +186,7 @@ curl http://127.0.0.1:8000/health
 
 | 服务 | 默认端口 |
 | --- | --- |
-| Web | 3000 |
+| Web（宿主机原生 Nginx，见 `deploy/nginx/quantmind.locations.conf`） | 按所挂 server 块 |
 | API / Engine / Trade / Stream | 8000 / 8001 / 8002 / 8003 |
 | Data Gateway | 8004 |
 | Huntly / RSSHub / QwenPaw | 8090 / 1200 / 8088 |

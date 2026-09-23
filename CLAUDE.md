@@ -137,7 +137,15 @@ git push gitee master
 ssh ${SSH_TARGET} "cd ${PROJECT_DIR} && sudo bash deploy/update.sh"
 ```
 
-Electron 前端在本地开发时使用 Vite HMR；修改 `electron/src` 后运行 `npm run typecheck` 即可（Web 前端已下线，无需复制构建产物到服务器）。
+Electron 前端在本地开发时使用 Vite HMR；修改 `electron/src` 后运行 `npm run typecheck`。
+
+### Web 前端部署（宿主机原生 Nginx）
+操作步骤（首次安装、日常更新、后端换机器、排障）见 `deploy/README.md` 的「Web 前端（原生 Nginx）」一节。日常更新执行 `bash scripts/deploy_frontend.sh`，服务器地址从 `deploy/web.local.env`（gitignore）读取。以下是改代码时必须遵守的规则：
+- **前端不进 Docker**：`docker-compose.yml` 里没有 web 服务。Nginx 配置模板唯一来源是 `deploy/nginx/quantmind.locations.conf`。
+- **禁止写死根路径**：前端可以部署在子路径下（如 `/QuantMind/`，依赖生产构建 base 为 `./` 和 HashRouter）。public 资源必须用相对路径或 `import.meta.env.BASE_URL` 拼接，不能写 `/xxx`。只有 API/WS 固定走根路径 `/api/`、`/ws/`。
+- **Web 与桌面端的区分**：只能用 `isElectronEnv()` 判断（`src/config/services.ts`），它会排除 `utils/electronCompat.ts` 注入的兼容层（`isWebShim`）。禁止直接用 `window.electronAPI` 是否存在来判断，否则浏览器会被误判为桌面端，直连 `127.0.0.1:8000`。
+- **禁止**把项目源码目录放进 Nginx 静态根目录，否则 `.env` 可以被直接下载。
+- 仓库中不写具体服务器地址，一律使用占位符。
 
 ## 关键文件
 
